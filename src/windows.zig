@@ -1,25 +1,28 @@
 const std = @import("std");
-const serial = @import("zig-serial.zig");
 const SerialPort = @import("SerialPort.zig");
-const SerialPortDescription = serial.SerialPortDescription;
-const PortInformation = serial.PortInformation;
-const Config = serial.Config;
-const ControlPins = serial.ControlPins;
+const Description = SerialPort.Description;
+const Details = SerialPort.Details;
+const Config = SerialPort.Config;
+const Pins = SerialPort.Pins;
 const Parity = SerialPort.Parity;
 
-pub fn configureSerialPort(port: std.fs.File, config: Config) !void {
+pub fn configure(file: std.fs.File, config: Config) !void {
     var dcb = std.mem.zeroes(DCB);
     dcb.DCBlength = @sizeOf(DCB);
 
-    if (GetCommState(port.handle, &dcb) == 0)
-        return error.WindowsError;
+    if (GetCommState(file.handle, &dcb) == 0)
+        return error.windows_error;
 
     var flags = DCBFlags.fromNumeric(dcb.flags);
 
     // std.log.err("{s} {s}", .{ dcb, flags });
 
-    dcb.BaudRate = config.baud_rate;
-
+    // get enum name, remove first character, then parse as u32
+    dcb.BaudRate = try std.fmt.parseInt(
+        u32,
+        @tagName(config.baud_rate)[1..],
+        10,
+    );
     flags.fBinary = 1;
     flags.fParity = @intFromBool(config.parity != .none);
     flags.fOutxCtsFlow = @intFromBool(config.handshake == .hardware);
@@ -34,7 +37,6 @@ pub fn configureSerialPort(port: std.fs.File, config: Config) !void {
     flags.fRtsControl = @intFromBool(config.handshake == .hardware);
     flags.fAbortOnError = 0;
     dcb.flags = flags.toNumeric();
-
     dcb.wReserved = 0;
     dcb.ByteSize = switch (config.word_size) {
         .five => @as(u8, 5),
@@ -57,40 +59,26 @@ pub fn configureSerialPort(port: std.fs.File, config: Config) !void {
     dcb.XoffChar = 0x13;
     dcb.wReserved1 = 0;
 
-    if (SetCommState(port.handle, &dcb) == 0)
-        return error.WindowsError;
+    if (SetCommState(file.handle, &dcb) == 0)
+        return error.windows_error;
 }
 
-const Line = enum { in, out, both };
-pub fn flushSerialPort(port: std.fs.File, lines: Line) !void {
-    const PURGE_RXCLEAR = 0x0008;
-    const PURGE_TXCLEAR = 0x0004;
-    // const PURGE_RXABORT = 0x0002;
-    // const PURGE_TXABORT = 0x0001;
-    const flags = switch (lines) {
-        .in => PURGE_RXCLEAR,
-        .out => PURGE_TXCLEAR,
-        .both => PURGE_TXCLEAR | PURGE_RXCLEAR,
-    };
-    if (PurgeComm(port.handle, flags) == 0)
-        return error.FlushError;
-}
-
-pub fn changeControlPins(port: std.fs.File, pins: ControlPins) !void {
+pub fn setPins(file: std.fs.File, pins: Pins) !void {
     const CLRDTR = 6;
     const CLRRTS = 4;
     const SETDTR = 5;
     const SETRTS = 3;
 
     if (pins.dtr) |dtr| {
-        if (EscapeCommFunction(port.handle, if (dtr) SETDTR else CLRDTR) == 0)
+        if (EscapeCommFunction(file.handle, if (dtr) SETDTR else CLRDTR) == 0)
             return error.WindowsError;
     }
     if (pins.rts) |rts| {
-        if (EscapeCommFunction(port.handle, if (rts) SETRTS else CLRRTS) == 0)
+        if (EscapeCommFunction(file.handle, if (rts) SETRTS else CLRRTS) == 0)
             return error.WindowsError;
     }
 }
+
 const HKEY = std.os.windows.HKEY;
 const HWND = std.os.windows.HANDLE;
 const HDEVINFO = std.os.windows.HANDLE;
@@ -120,6 +108,10 @@ const DCB = extern struct {
     wReserved1: std.os.windows.WORD,
 };
 
+// TODO: rework this to use CIM_SerialController or Win32_SerialPort. This
+// would remove all the registry interaction and also make the PortIterator
+// nearly identical to the InformationIterator as they would both be pulling
+// from the same source.
 const PortIterator = struct {
     const Self = @This();
 
@@ -150,24 +142,38 @@ const PortIterator = struct {
         self.* = undefined;
     }
 
-    pub fn next(self: *Self) !?SerialPortDescription {
+    pub fn next(self: *Self) !?Description {
         defer self.index += 1;
 
         self.name_size = 256;
         self.data_size = 256;
 
-        return switch (RegEnumValueA(self.key, self.index, &self.name, &self.name_size, null, null, &self.data, &self.data_size)) {
-            0 => SerialPortDescription{
-                .file_name = try std.fmt.bufPrint(&self.filepath_data, "\\\\.\\{s}", .{self.data[0 .. self.data_size - 1]}),
+        return switch (RegEnumValueA(
+            self.key,
+            self.index,
+            &self.name,
+            &self.name_size,
+            null,
+            null,
+            &self.data,
+            &self.data_size,
+        )) {
+            0 => Description{
+                .file_name = try std.fmt.bufPrint(
+                    &self.filepath_data,
+                    "\\\\.\\{s}",
+                    .{self.data[0 .. self.data_size - 1]},
+                ),
                 .display_name = self.data[0 .. self.data_size - 1],
                 .driver = self.name[0..self.name_size],
             },
             259 => null,
-            else => error.WindowsError,
+            else => error.windows_error,
         };
     }
 };
 
+// TODO: rework this to use CIM_SerialController or Win32_SerialPort
 const InformationIterator = struct {
     const Self = @This();
 
@@ -226,7 +232,7 @@ const InformationIterator = struct {
         self.* = undefined;
     }
 
-    pub fn next(self: *Self) !?PortInformation {
+    pub fn next(self: *Self) !?Details {
         var device_info_data: SP_DEVINFO_DATA = .{
             .cbSize = @sizeOf(SP_DEVINFO_DATA),
             .classGuid = std.mem.zeroes(std.os.windows.GUID),
@@ -240,7 +246,7 @@ const InformationIterator = struct {
 
         defer self.index += 1;
 
-        var info: PortInformation = std.mem.zeroes(PortInformation);
+        var info: Details = std.mem.zeroes(Details);
         @memset(&self.hw_id, 0);
 
         // NOTE: have not handled if port startswith("LPT")
