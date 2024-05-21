@@ -97,6 +97,32 @@ test "flush input" {
     try testing.expectEqualStrings(purged, &buffer);
 }
 
+test "readv" {
+    var port2 = try serial.init("COM200", .{
+        .baud_rate = .B115200,
+        .handshake = .none,
+        .parity = .none,
+        .stop_bits = .one,
+        .word_size = .eight,
+    });
+    defer port2.close();
+
+    var port1 = try serial.init("COM100", .{
+        .baud_rate = .B115200,
+        .handshake = .none,
+        .parity = .none,
+        .stop_bits = .one,
+        .word_size = .eight,
+    });
+    defer port1.close();
+
+    try port2.writeAll("Test");
+
+    var buffer: [20]u8 = undefined;
+    const read = try port1.readAll(&buffer);
+    std.debug.print("\n\tRead {d} bytes\n", .{read});
+}
+
 // I'm not sure how to go about doing this one.
 // test "flush output" {
 //     const hello = "Hello, World!";

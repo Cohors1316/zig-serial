@@ -66,17 +66,17 @@ pub const Handshake = enum {
     hardware,
 };
 
-pub const WordSize = enum {
-    five,
-    six,
-    seven,
-    eight,
+pub const WordSize = enum(u32) {
+    five = 5,
+    six = 6,
+    seven = 7,
+    eight = 8,
 };
 
 pub const Config = struct {
     /// Symbol rate in bits/second. Not that these
     /// include also parity and stop bits.
-    baud_rate: BaudRate = .B9600,
+    baud_rate: u32 = 9600,
 
     /// Parity to verify transport integrity.
     parity: Parity = .none,
@@ -92,11 +92,6 @@ pub const Config = struct {
     handshake: Handshake = .none,
 };
 
-pub const BaudRate = switch (native_os) {
-    .windows => windows_serial.speed, // because windows has to be special
-    else => std.c.speed_t, // std lib has nearly every os
-};
-
 pub const Buffers = enum { input, output, both };
 
 pub const Pins = struct {
@@ -110,9 +105,20 @@ pub fn configure(file: std.fs.File, config: Config) !void {
     const VSTART = 8;
     const VSTOP = 9;
 
+    var buffer: [10]u8 = undefined;
+    _ = try std.fmt.bufPrint(&buffer, "B{d}", .{config.baud_rate});
+    const baud_rate = std.meta.stringToEnum(std.c.speed_t, buffer) orelse {
+        return error.unsupported_baud_rate;
+    };
+
+    _ = try std.fmt.bufPrint(&buffer, "CS{d}", .{@intFromBool(config.word_size)});
+    const word_size = std.meta.stringToEnum(std.c.CSIZE, &buffer) orelse {
+        return error.unsupported_word_size;
+    };
+
     var settings = try std.posix.tcgetattr(file.handle);
-    settings.ispeed = config.baud_rate;
-    settings.ospeed = config.baud_rate;
+    settings.ispeed = baud_rate;
+    settings.ospeed = baud_rate;
     settings.lflag = .{};
     settings.oflag = .{};
     settings.iflag = .{
