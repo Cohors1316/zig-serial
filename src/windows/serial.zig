@@ -88,31 +88,6 @@ const DCB = extern struct {
     EofChar: u8,
     EvtChar: u8,
     wReserved1: WORD,
-
-    pub fn create(
-        port_name: []const u8,
-        config: common_serial.Config,
-    ) !DCB {
-        var buff_len: u32 = port_name.len;
-
-        var buffer: [buff_len]u8 = undefined;
-        const build_string = try std.fmt.bufPrint(
-            &buffer,
-            "COM{s}:baud={d}parity={d}data={d}stop={d}to={s}xon={s}",
-            .{
-                port_name,
-                config.baud_rate,
-                @intFromEnum(config.parity),
-                @intFromEnum(config.word_size),
-                @intFromEnum(config.stop_bits),
-            },
-        );
-        var dcb = DCB{};
-        if (BuildCommDCBA(build_string, &dcb) != 0) {
-            
-        }
-        return dcb;
-    }
 };
 
 const DCBFlags = struct {
@@ -219,7 +194,7 @@ extern "kernel32" fn GetCommModemStatus(in_hFile: HANDLE, out_lpModemStat: *DWOR
 extern "kernel32" fn GetCommProperties(in_hFile: HANDLE, out_lpCommProp: *COMMPROP) callconv(WINAPI) BOOL;
 
 /// Retrieves the current control settings for a specified communications device.
-extern "kernel32" fn GetCommState(in_hFile: HANDLE, in_out_lpDCB: *DCB) callconv(WINAPI) std.os.windows.BOOL;
+extern "kernel32" fn GetCommState(in_hFile: HANDLE, in_out_lpDCB: *DCB) callconv(WINAPI) BOOL;
 
 /// Retrieves the time-out parameters for all read and write operations on a specified communications device.
 extern "kernel32" fn GetCommTimeouts(in_hFile: HANDLE, out_lpCommTimeouts: *COMMTIMEOUTS) callconv(WINAPI) BOOL;
