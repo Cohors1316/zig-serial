@@ -71,7 +71,6 @@ pub const WordSize = enum(u32) {
     eight = 8,
 };
 
-pub const Parity = enum(u32) {};
 
 const DCB = extern struct {
     DCBlength: DWORD,
