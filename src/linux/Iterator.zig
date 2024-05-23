@@ -22,7 +22,7 @@ pub fn deinit(self: *Iterator) void {
     self.* = undefined;
 }
 
-pub fn next(self: *Iterator) !?common_serial.Description {
+pub fn next(self: *Iterator) !?Description {
     while (true) {
         if (try self.iterator.next()) |entry| {
             // not a dir => we don't care
@@ -47,7 +47,7 @@ pub fn next(self: *Iterator) !?common_serial.Description {
                 entry.name,
             });
 
-            return common_serial.Description{
+            return Description{
                 .file_name = path,
                 .display_name = path,
                 .driver = std.fs.path.basename(link),
@@ -61,5 +61,5 @@ pub fn next(self: *Iterator) !?common_serial.Description {
 
 const Iterator = @This();
 const std = @import("std");
-const common_serial = @import("../common_serial.zig");
+const Description = @import("../serial.zig").Description;
 const root_dir = "/sys/class/tty";

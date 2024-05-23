@@ -1,5 +1,4 @@
 const c = @cImport(@cInclude("termios.h"));
-const SerialPort = @import("../SerialPort.zig");
 const serial = @import("../serial.zig");
 const Buffers = serial.Buffers;
 const File = @import("std").fs.File;

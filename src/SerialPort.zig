@@ -9,8 +9,8 @@ pub fn init(port: []const u8, config: Config) SerialPort {
     };
 }
 
-pub fn iterate() Iterator {
-    return Iterator{};
+pub fn iterate() !Iterator {
+    return try Iterator.init();
 }
 
 pub fn open(self: *SerialPort) !void {
@@ -23,10 +23,11 @@ pub fn open(self: *SerialPort) !void {
     };
     const path = try std.fmt.bufPrint(&buffer, fmt_string, .{self.p.name});
     self.p.file = try std.fs.openFileAbsolute(path, .{.mode = .read_write});
-    try switch (native_os) {
-        .windows => win_serial.configure(self),
-        else => serial.configure(self),  
-    };
+    errdefer {
+        if (self.p.file) |file| file.close();
+        self.p.file = null;
+    }
+    try self.configure();
 }
 
 pub fn close(self: *SerialPort) void {
@@ -102,3 +103,10 @@ const Iterator = switch (native_os) {
     .macos => @import("darwin/Iterator.zig"),
     else => @import("linux/Iterator.zig"),
 };
+
+fn configure(self: *SerialPort) !void {
+    return switch (native_os) {
+        .windows => win_serial.configure(self),
+        else => serial.configure(self),
+    };
+}
