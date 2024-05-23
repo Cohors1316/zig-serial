@@ -1,9 +1,74 @@
 const std = @import("std");
-const common_serial = @import("common_serial.zig");
-const windows_serial = @import("windows/serial.zig");
-const linux_serial = @import("linux/serial.zig");
-const darwin_serial = @import("darwin/serial.zig");
+// const common_serial = @import("common_serial.zig");
+// const windows_serial = @import("windows/serial.zig");
+// const linux_serial = @import("linux/serial.zig");
+// const darwin_serial = @import("darwin/serial.zig");
 const native_os = @import("builtin").os.tag;
+const termios = @cImport(@cInclude("termios.h"));
+
+pub const Pins = struct {
+    rts: ?bool = null,
+    dtr: ?bool = null,
+};
+
+pub const Parity = enum {
+    none,
+    even,
+    odd,
+    space,
+    mark,
+};
+
+pub const StopBits = switch (native_os) {
+    .windows => enum {
+        one,
+        two,
+        // #(*$&) windows
+        one_point_five,
+    },
+    else => enum { one, two },
+};
+
+pub const HandShake = enum { none, software, hardware };
+
+pub const WordSize = switch (native_os) {
+    .windows => enum(u32) {
+        CS5 = 5,
+        CS6 = 6,
+        CS7 = 7,
+        CS8 = 8,
+    },
+    else => std.posix.CSIZE,
+};
+
+pub const Buffers = enum {
+    input,
+    output,
+    both,
+};
+
+const Config = struct {
+    baud_rate: u32 = 9600,
+    parity: Parity = .none,
+    stop_bits: StopBits = .one,
+    word_size: WordSize = .eight,
+    // these must exist for windows
+    // 0 will cause ports to hand indefinitly
+    read_timeout: u32 = 100,
+    write_timeout: u32 = 100,
+};
+
+
+
+
+
+
+
+
+
+
+
+
 
 pub fn iterator() !common_serial.Iterator {
     return try common_serial.Iterator.init();

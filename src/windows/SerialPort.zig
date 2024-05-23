@@ -9,28 +9,6 @@ pub fn init(port: []const u8, config: Config) !SerialPort {
     };
 }
 
-pub fn open(self: *SerialPort) !void {
-    if (self.p.file) return;
-    var buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const path = try std.fmt.bufPrint(&buffer, "\\\\.\\", .{self.p.name});
-    self.p.file = try std.fs.openDirAbsolute(path, .{.mode = .read_write});
-    try self.configure();
-}
-
-pub fn close(self: *SerialPort) void {
-    if (self.p.file) |file| {
-        file.close();
-        self.p.file = null;
-    }
-}
-
-pub fn write(self: *SerialPort, bytes: []const u8) !void {
-    if (self.p.file) |file| {
-        return file.writeAll(bytes);
-    }
-    return error.port_closed;
-}
-
 pub fn read(self: *SerialPort, buffer: []u8) !u32 {
     if (self.p.file) |file| {
         var bytes_read: u32 = undefined;
@@ -55,7 +33,7 @@ pub fn flush(self: *SerialPort, buffers: Buffers) !void {
     return error.port_closed;
 }
 
-pub fn controlPins(self: *SerialPort, pins: Pins) !void {
+pub fn pins(self: *SerialPort, pins: Pins) !void {
     if (self.p.file) |file| {
         if (pins.rts) |rts| {
             const success = externs.EscapeCommFunction(file.handle, if (rts) 3 else 4) == 0;

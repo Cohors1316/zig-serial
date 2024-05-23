@@ -1,29 +1,38 @@
 const std = @import("std");
-const common_serial = @import("../common_serial.zig");
+const serial = @import("../common_serial.zig");
+const SerialPort = @import("../SerialPort.zig");
+const File = std.fs.File;
+const Pins = serial.Pins;
+const Buffers = serial.Buffers;
 
-pub fn flush(file: std.fs.File, buffers: common_serial.Buffers) !void {
-    const flags: u32 = switch (buffers) {
-        .input => 0x0008,
-        .output => 0x0004,
-        .both => 0x0004 | 0x0008,
-    };
-    if (PurgeComm(file.handle, flags) == 0) return error.flush;
+pub fn setPins(file: File, pins: Pins) !void {
+    if (pins.rts) |rts| {
+        if (EscapeCommFunction(file.hanle, if (rts) 3 else 4) == 0)
+            return error.ControlPins;
+    }
+    if (pins.dtr) |dtr| {
+        if (EscapeCommFunction(file.handle, if (dtr) 5 else 6) == 0)
+            return error.ControlPins;
+    }
 }
 
-pub fn changeControlPins(file: std.fs.File, pins: common_serial.Pins) !void {
-    const SETRTS = 3;
-    const CLRRTS = 4;
-    const SETDTR = 5;
-    const CLRDTR = 6;
+pub fn flush(file: File, buffers: Buffers) !void {
+    const mode = switch (buffers) {
+        .input => 0x0008,
+        .output => 0x0004,
+        .both => 0x0008 | 0x0004,
+    };
+    if (PurgeComm(file.handle, mode) == 0)
+        return error.PurgeBuffers;
+}
 
-    if (pins.dtr) |dtr| {
-        if (EscapeCommFunction(file.handle, if (dtr) SETDTR else CLRDTR) == 0)
-            return error.control_pins_dtr;
-    }
-    if (pins.rts) |rts| {
-        if (EscapeCommFunction(file.handle, if (rts) SETRTS else CLRRTS) == 0)
-            return error.control_pins_rts;
-    }
+
+pub fn open(self: *SerialPort) !void {
+    if (self.p.file) return;
+    var buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const path = try std.fmt.bufPrint(&buffer, "\\\\.\\", .{self.p.name});
+    self.p.file = try std.fs.openFileAbsolute(path, .{.mode = .read_write});
+    try configure(self.file, self.config);
 }
 
 pub fn configure(file: std.fs.File, config: common_serial.Config) !void {
@@ -64,32 +73,6 @@ pub fn configure(file: std.fs.File, config: common_serial.Config) !void {
     if (SetCommState(file.handle, &dcb) == 0) return error.configure;
 }
 
-pub const WordSize = enum(u32) {
-    five = 5,
-    six = 6,
-    seven = 7,
-    eight = 8,
-};
-
-
-const DCB = extern struct {
-    DCBlength: DWORD,
-    BaudRate: DWORD,
-    flags: u32,
-    wReserved: WORD,
-    XonLim: WORD,
-    XoffLim: WORD,
-    ByteSize: BYTE,
-    Parity: BYTE,
-    StopBits: BYTE,
-    XonChar: u8,
-    XoffChar: u8,
-    ErrorChar: u8,
-    EofChar: u8,
-    EvtChar: u8,
-    wReserved1: WORD,
-};
-
 const DCBFlags = struct {
     fBinary: u1 = 1, // u1
     fParity: u1 = 0, // u1
@@ -127,11 +110,12 @@ const DCBFlags = struct {
 };
 
 const WINAPI = std.os.windows.WINAPI;
-const COMMCONFIG = struct {};
-const COMMPROP = struct {};
-const CSTR = struct {};
-const COMMTIMEOUTS = struct {};
-const COMSTAT = struct {};
+const COMMCONFIG = @import("COMMCONFIG.zig");
+const COMMPROP = @import("COMMPROP.zig");
+const CSTR = []const u8;
+const COMMTIMEOUTS = @import("COMMTIMEOUTS.zig");
+const DCB = @import("DCB.zig");
+const COMSTAT = @import("COMSTAT.zig");
 const HANDLE = std.os.windows.HANDLE;
 const DWORD = std.os.windows.DWORD;
 const BOOL = std.os.windows.BOOL;

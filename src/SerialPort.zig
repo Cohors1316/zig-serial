@@ -1,76 +1,104 @@
 p: private = .{},
 
+pub fn init(port: []const u8, config: Config) SerialPort {
+    return .{
+        .p = .{
+            .name = port,
+            .config = config,
+        },
+    };
+}
+
+pub fn iterate() Iterator {
+    return Iterator{};
+}
+
+pub fn open(self: *SerialPort) !void {
+    if (self.p.file) return;
+    var buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const fmt_string = switch (native_os) {
+        .windows => "\\\\.\\{s}",
+        .macos => "/dev/{s}",
+        else => "/dev/{s}",
+    };
+    const path = try std.fmt.bufPrint(&buffer, fmt_string, .{self.p.name});
+    self.p.file = try std.fs.openFileAbsolute(path, .{.mode = .read_write});
+    try switch (native_os) {
+        .windows => win_serial.configure(self),
+        else => serial.configure(self),  
+    };
+}
+
+pub fn close(self: *SerialPort) void {
+    if (self.p.file) |file| {
+        file.close();
+        self.p.file = null;
+    }
+}
+
+pub fn write(self: *SerialPort, bytes: []const u8) !void {
+    if (self.p.file) |file| {
+        return file.writeAll(bytes);
+    }
+    return error.PortClosed;
+}
+
+pub fn read(self: *SerialPort, buffer: []u8) !u32 {
+    if (self.p.file) |file| {
+        return switch (native_os) {
+            .windows => win_serial.read(file, buffer),
+            else => serial.read(file, buffer),
+        };
+    }
+    return error.PortClosed;
+}
+
+pub fn flush(self: *SerialPort, buffers: Buffers) !void {
+    if (self.p.file) |file| {
+        return switch (native_os) {
+            .windows => win_serial.flush(file, buffers),
+            .macos => dar_serial.flush(file, buffers),
+            else => lin_serial.flush(file, buffers),
+        };
+    }
+    return error.PortClosed;
+}
+
+pub fn setPins(self: *SerialPort, pins: Pins) !void {
+    if (self.p.file) |file| {
+        return switch (native_os) {
+            .windows => win_serial.setPins(file, pins),
+            .macos => @panic("MacOs not supported"),
+            else => lin_serial.setPins(file, pins),
+        };
+    }
+    return error.PortClosed;
+}
+
 const SerialPort = @This();
 const std = @import("std");
-const termios = @cImport(@cInclude("termios.h"));
+const win_serial = @import("windows/serial.zig");
+const dar_serial = @import("darwin/serial.zig");
+const lin_serial = @import("linux/serial.zig");
 const File = std.fs.File;
 const native_os = @import("builtin").os.tag;
+const serial = @import("serial.zig");
+const Buffers = serial.Buffers;
+const Pins = serial.Pins;
+const Parity = serial.Parity;
+const Handshake = serial.HandShake;
+const Config = serial.Config;
+const WordSize = serial.WordSize;
+const StopBits = serial.StopBits;
 
 const private = struct {
     file: ?File = null,
     name: []const u8,
     config: Config = .{},
-    // these are required for windows stupidity
-    write_timeout: u32 = 100,
-    read_timeout: u32 = 100,
 };
 
-const Config = struct {
-    baud_rate: u32 = 9600,
-    parity: Parity = .none,
-    stop_bits: StopBits = .one,
-    word_size: WordSize = .eight,
-};
-
-const Parity = enum {
-    none,
-    even,
-    odd,
-    space,
-    mark,
-};
-
-const StopBits = switch (native_os) {
-    .windows => enum {
-        one,
-        two,
-        // #(*$&) windows
-        one_point_five,
-    },
-    else => enum { one, two },
-};
-
-const HandShake = enum { none, software, hardware };
-
-const WordSize = switch (native_os) {
-    .windows => enum(u32) {
-        CS5 = 5,
-        CS6 = 6,
-        CS7 = 7,
-        CS8 = 8,
-    },
-    else => std.posix.CSIZE,
-};
-
-const Buffers = switch (native_os) {
-    .windows => enum(u32) {
-        input = 0x0008,
-        output = 0x0004,
-        both = 0x0004 | 0x0008,
-    },
-    .macos => enum(u32) {
-        input = termios.TCIFLUSH,
-        output = termios.TCOFLUSH,
-        both = termios.TCIOFLUSH,
-    },
-    else => enum(usize) {
-        input = 1,
-        output = 2,
-        both = 3,
-    },
-};
-
-const Pins = struct {
-    rts: ?bool = null,
-    dtr: ?bool = null,
+const Iterator = switch (native_os) {
+    .windows => @import("windows/Iterator.zig"),
+    .macos => @import("darwin/Iterator.zig"),
+    else => @import("linux/Iterator.zig"),
 };
