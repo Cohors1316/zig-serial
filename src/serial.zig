@@ -696,6 +696,13 @@ pub fn configureSerialPort(port: std.fs.File, config: SerialConfig) !void {
 
             if (SetCommState(port.handle, &dcb) == 0)
                 return error.WindowsError;
+            var timeouts = COMMTIMEOUTS{};
+            if (config.timeout > 0) {
+                timeouts.ReadTotalTimeoutMultiplier = std.math.maxInt(std.os.windows.DWORD);
+                timeouts.ReadTotalTimeoutConstant = config.timeout;
+            }
+            if (SetCommTimeouts(port.handle, &timeouts) == 0)
+                return error.WindowsError;
         },
         .linux, .macos => |tag| {
             var settings = try std.posix.tcgetattr(port.handle);
@@ -762,13 +769,6 @@ pub fn configureSerialPort(port: std.fs.File, config: SerialConfig) !void {
             settings.cc[VTIME] = 0;
 
             try std.posix.tcsetattr(port.handle, .NOW, settings);
-            var timeouts = COMMTIMEOUTS{};
-            if (config.timeout > 0) {
-                timeouts.ReadTotalTimeoutMultiplier = std.math.maxInt(std.os.windows.DWORD);
-                timeouts.ReadTotalTimeoutConstant = config.timeout;
-            }
-            if (SetCommTimeouts(port.handle, &timeouts) == 0)
-                return error.WindowsError;
         },
         else => @compileError("unsupported OS, please implement!"),
     }
