@@ -633,6 +633,9 @@ pub const SerialConfig = struct {
 
     /// Defines the handshake protocol used.
     handshake: Handshake = .none,
+
+    /// Read timeout in milliseconds. Only used on Windows.
+    timeout: u23 = 0,
 };
 
 const CBAUD = 0o000000010017; //Baud speed mask (not in POSIX).
@@ -759,10 +762,29 @@ pub fn configureSerialPort(port: std.fs.File, config: SerialConfig) !void {
             settings.cc[VTIME] = 0;
 
             try std.posix.tcsetattr(port.handle, .NOW, settings);
+            var timeouts = COMMTIMEOUTS{};
+            if (config.timeout > 0) {
+                timeouts.ReadTotalTimeoutMultiplier = std.math.maxInt(std.os.windows.DWORD);
+                timeouts.ReadTotalTimeoutConstant = config.timeout;
+            }
+            if (SetCommTimeouts(port.handle, &timeouts) == 0)
+                return error.WindowsError;
         },
         else => @compileError("unsupported OS, please implement!"),
     }
 }
+
+// Defaults cause port to act like posix, immediately returns buffer, even if there is no data.
+// Max Multiplier and any value on Constant will cause port to wait until supplied buffer is full, or timeout is reached.
+const COMMTIMEOUTS = extern struct {
+    ReadIntervalTimeout: std.os.windows.DWORD = std.math.maxInt(std.os.windows.DWORD),
+    ReadTotalTimeoutMultiplier: std.os.windows.DWORD = 0,
+    ReadTotalTimeoutConstant: std.os.windows.DWORD = 0,
+    WriteTotalTimeoutMultiplier: std.os.windows.DWORD = 0,
+    WriteTotalTimeoutConstant: std.os.windows.DWORD = 0,
+};
+
+extern "kernel32" fn SetCommTimeouts(in_hFile: std.os.windows.HANDLE, in_lpCommTimeouts: *COMMTIMEOUTS) callconv(std.os.windows.WINAPI) std.os.windows.BOOL;
 
 /// Flushes the serial port `port`. If `input` is set, all pending data in
 /// the receive buffer is flushed, if `output` is set all pending data in
